@@ -112,7 +112,15 @@ clean_test, _, _ = preprocess(test_data, ex_col)
 train_dict, feature_dict = tokenize_train(clean_train, other_cols)
 test_dict = tokenize_test(clean_test, other_cols, feature_dict)
 
-np.savez(data_dir + "data", train_dict = train_dict, test_dict = test_dict, feature_dict = feature_dict)
+# Build validation set
+valid_dict = {}
+valid_keys = [k for k in train_dict if random.random() > 0.95]
+for k in valid_keys:
+    valid_dict[k] = train_dict[k]
+    del train_dict[k] 
+
+
+np.savez(data_dir + "final_data", train_dict = train_dict, valid_dict = valid_dict, test_dict = test_dict, feature_dict = feature_dict)
 
 '''
 How to decide min_count
