@@ -6,7 +6,7 @@ from torch.autograd import Variable
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.nn.utils import clip_grad_norm
-from utils import load_data, batch_iter, set_cuda, detach_cuda, get_stats, ret_strtgy
+from utils import load_data, batch_iter, set_cuda, detach_cuda, get_clf_stats, clf_strtgy
 import time
 import math
 
@@ -20,8 +20,9 @@ class MultiNet(nn.Module):
         self.linear2 = nn.Linear(hidden_dim + sum([embed_sizes[k] for k in embed_keys]), hidden_dim)
         sub_hidden_dim = int(hidden_dim / 2)
         self.linear3 = nn.Linear(hidden_dim, sub_hidden_dim)
-        self.linear4_1 = nn.Linear(sub_hidden_dim, 1)
-        self.rgrs_loss = nn.MSELoss()
+        self.linear4 = nn.Linear(sub_hidden_dim, num_class)
+        self.prob = nn.Softmax()
+        self.clf_loss = nn.CrossEntropyLoss()
     
     def forward(self, X_float, X_embed, batch_label, batch_ret):
         float_hid = self.linear1(X_float)
@@ -32,9 +33,10 @@ class MultiNet(nn.Module):
         hid = F.relu(hid)
         hid = self.linear3(hid)
         hid = F.relu(hid)
-        ret = self.linear4_1(hid)
-        rgrs_loss = self.rgrs_loss(ret, batch_ret)
-        return rgrs_loss, ret
+        hid = self.linear4(hid)
+        prob = self.prob(hid)
+        clf_loss = self.clf_loss(prob, batch_label)
+        return clf_loss, prob
 
 def train(model, num_batch, train_batches, valid_batches, test_batches, opt, num_epochs, hidden_dim, verbose = True):
     epoch = 0
@@ -49,7 +51,7 @@ def train(model, num_batch, train_batches, valid_batches, test_batches, opt, num
     while epoch < num_epochs:
         batch_X_float, batch_X_embed, batch_label, batch_duration, batch_ret = next(train_batches)
         opt.zero_grad()
-        loss, pred_ret = model(batch_X_float, batch_X_embed, batch_label, batch_ret)
+        loss, prob = model(batch_X_float, batch_X_embed, batch_label, batch_ret)
         loss.backward()
         #clip_grad_norm(model.parameters(), 1)
         opt.step()
@@ -58,22 +60,22 @@ def train(model, num_batch, train_batches, valid_batches, test_batches, opt, num
             epoch += 1
             step = 0
             if epoch % rpt_epoch == 0:
-                med_diff, avg_diff, max_diff = get_stats(pred_ret, batch_ret)
+                auc, acc = get_clf_stats(prob, batch_label)
                 if verbose:
-                    print('Train: epoch: %d, avg loss: %.3f, median diff: %.3f, mean: %.3f, max: %.3f' % (epoch, loss.data[0], med_diff, avg_diff, max_diff))
+                    print('Train: epoch: %d, avg loss: %.3f, auc: %.3f, acc: %.3f' % (epoch, loss.data[0], auc, acc))
             valid_X_float, valid_X_embed, valid_label, valid_duration, valid_ret = next(valid_batches)
-            _, ret = model(valid_X_float, valid_X_embed, valid_label, valid_ret)
-            valid_avg_ret, valid_med_ret, valid_std_ret = ret_strtgy(ret, valid_ret)
+            _, prob = model(valid_X_float, valid_X_embed, valid_label, valid_ret)
+            valid_avg_ret, valid_med_ret, valid_std_ret = clf_strtgy(prob[:, 1], valid_ret)
             test_X_float, test_X_embed, test_label, test_duration, test_ret = next(test_batches)
-            _, ret = model(test_X_float, test_X_embed, test_label, test_ret)
-            test_avg_ret, test_med_ret, test_std_ret = ret_strtgy(ret, test_ret)
+            _, prob = model(test_X_float, test_X_embed, test_label, test_ret)
+            test_avg_ret, test_med_ret, test_std_ret = clf_strtgy(prob[:, 1], test_ret)
             if valid_avg_ret > best_val_ret:
                 best_epoch = epoch
                 best_val_ret = valid_avg_ret
                 best_tst_ret = test_avg_ret
                 best_med_ret = test_med_ret
                 best_std_ret = test_std_ret
-                model_name = './models/regmse_' + str(hidden_dim) + 'dim_model.pt'
+                model_name = './models/clf_ce_' + str(hidden_dim) + 'dim_model.pt'
                 torch.save(model.state_dict(), model_name)
             if epoch % test_epoch == 0 and verbose:
                 print('Test epoch: %d, avg return: %.3f, median: %.3f, std: %.3f' % (epoch, test_avg_ret, test_med_ret, test_std_ret))           
@@ -87,7 +89,7 @@ embed_sizes = {'issue_month': 4, 'home_ownership': 2, 'verification_status': 2, 
 num_samples = len(train_data)
 batch_size = 1000
 num_batch = math.ceil(num_samples / batch_size)
-num_epochs = 20
+num_epochs = 200
 learning_rate = 1e-3
 weight_decay = 0.0001
 num_class = len(set([train_data[t]['label'] for t in train_data]))
