@@ -46,8 +46,8 @@ def train(model, num_batch, train_batches, valid_batches, test_batches, opt, num
     best_tst_ret = 0
     best_med_ret = 0
     best_std_ret = 0
-    rpt_epoch = 1
-    test_epoch = 1
+    rpt_epoch = 5
+    test_epoch = 10
     while epoch < num_epochs:
         batch_X_float, batch_X_embed, batch_label, batch_duration, batch_ret = next(train_batches)
         opt.zero_grad()
@@ -65,10 +65,10 @@ def train(model, num_batch, train_batches, valid_batches, test_batches, opt, num
                     print('Train: epoch: %d, avg loss: %.3f, auc: %.3f, acc: %.3f' % (epoch, loss.data[0], auc, acc))
             valid_X_float, valid_X_embed, valid_label, valid_duration, valid_ret = next(valid_batches)
             _, prob = model(valid_X_float, valid_X_embed, valid_label, valid_ret)
-            valid_avg_ret, valid_med_ret, valid_std_ret = clf_strtgy(prob[:, 1], valid_ret)
+            valid_avg_ret, valid_med_ret, valid_std_ret = clf_strtgy(prob[:, 0], valid_ret)
             test_X_float, test_X_embed, test_label, test_duration, test_ret = next(test_batches)
             _, prob = model(test_X_float, test_X_embed, test_label, test_ret)
-            test_avg_ret, test_med_ret, test_std_ret = clf_strtgy(prob[:, 1], test_ret)
+            test_avg_ret, test_med_ret, test_std_ret = clf_strtgy(prob[:, 0], test_ret)
             if valid_avg_ret > best_val_ret:
                 best_epoch = epoch
                 best_val_ret = valid_avg_ret
