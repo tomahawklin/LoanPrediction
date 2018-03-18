@@ -18,10 +18,10 @@ class MultiNet(nn.Module):
         embed_layers = [nn.Embedding(embed_dims[k], embed_sizes[k]) for k in embed_keys]
         self.embed = nn.ModuleList(embed_layers)
         self.linear2 = nn.Linear(hidden_dim + sum([embed_sizes[k] for k in embed_keys]), hidden_dim)
-        self.dropout2 = nn.Dropout(p = 0.1)
+        #self.dropout2 = nn.Dropout(p = 0.1)
         sub_hidden_dim = int(hidden_dim / 2)
         self.linear3 = nn.Linear(hidden_dim, sub_hidden_dim)
-        self.dropout3 = nn.Dropout(p = 0.1)
+        #self.dropout3 = nn.Dropout(p = 0.1)
         self.linear4 = nn.Linear(sub_hidden_dim, 1)
         self.rgrs_loss = nn.L1Loss()
     
@@ -31,14 +31,24 @@ class MultiNet(nn.Module):
         embed_hid = torch.cat([self.embed[i](X_embed[:, i]) for i in range(len(self.embed))], dim = 1)
         hid = torch.cat([float_hid, embed_hid], dim = 1)
         hid = self.linear2(hid)
-        hid = self.dropout2(hid)
+        #hid = self.dropout2(hid)
         hid = F.relu(hid)
         hid = self.linear3(hid)
-        hid = self.dropout3(hid)
+        #hid = self.dropout3(hid)
         hid = F.relu(hid)
         ret = self.linear4(hid)
         rgrs_loss = self.rgrs_loss(ret, batch_ret)
         return rgrs_loss, ret
+    
+    def init_parm(self, std = 0.0001, bias = 0):
+        parameters = list(self.state_dict())
+        for p in parameters:
+            _type = p.split('.')[-1]
+            if _type == 'weight':
+                self.state_dict()[p].uniform_(-std, std)
+            elif _type == 'bias':
+                self.state_dict()[p].fill_(bias)
+        return None
 
 def train(model, num_batch, train_batches, valid_batches, test_batches, opt, num_epochs, hidden_dim, verbose = True):
     epoch = 0
@@ -51,9 +61,11 @@ def train(model, num_batch, train_batches, valid_batches, test_batches, opt, num
     rpt_epoch = 5
     test_epoch = 10
     while epoch < num_epochs:
+        epoch_loss = []
         batch_X_float, batch_X_embed, batch_label, batch_duration, batch_ret = next(train_batches)
         opt.zero_grad()
         loss, pred_ret = model(batch_X_float, batch_X_embed, batch_label, batch_ret)
+        epoch_loss += batch_X_float.size(0) * [loss.data[0]]
         loss.backward()
         #clip_grad_norm(model.parameters(), 1)
         opt.step()
@@ -63,13 +75,16 @@ def train(model, num_batch, train_batches, valid_batches, test_batches, opt, num
             step = 0
             if epoch % rpt_epoch == 0 and verbose:
                 med_diff, avg_diff, max_diff = get_stats(pred_ret, batch_ret)
-                print('Train: epoch: %d, avg loss: %.3f, median diff: %.3f, mean: %.3f, max: %.3f' % (epoch, loss.data[0], med_diff, avg_diff, max_diff))
+                print('Train: epoch: %d, avg loss: %.3f, median diff: %.3f, mean: %.3f, max: %.3f' % (epoch, np.mean(epoch_loss), med_diff, avg_diff, max_diff))
+            epoch_loss = []
             valid_X_float, valid_X_embed, valid_label, valid_duration, valid_ret = next(valid_batches)
+            _ = model.eval()
             _, ret = model(valid_X_float, valid_X_embed, valid_label, valid_ret)
             valid_avg_ret, valid_med_ret, valid_std_ret = ret_strtgy(ret, valid_ret)
             test_X_float, test_X_embed, test_label, test_duration, test_ret = next(test_batches)
             _, ret = model(test_X_float, test_X_embed, test_label, test_ret)
             test_avg_ret, test_med_ret, test_std_ret = ret_strtgy(ret, test_ret)
+            _ = model.train()
             if valid_avg_ret > best_val_ret:
                 best_epoch = epoch
                 best_val_ret = valid_avg_ret
@@ -90,18 +105,22 @@ embed_sizes = {'issue_month': 4, 'home_ownership': 2, 'verification_status': 2, 
 num_samples = len(train_data)
 batch_size = 1000
 num_batch = math.ceil(num_samples / batch_size)
-num_epochs = 150
+num_epochs = 100
 learning_rate = 1e-3
 weight_decay = 0.0001
 
+torch.manual_seed(10)
+torch.cuda.manual_seed(10)
+
 for hidden_dim in [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]:
     print('Experimenting hidden dimension = %d' % hidden_dim)
-    train_batches = batch_iter(train_data, batch_size, embed_keys, float_keys, shuffle = True)
+    train_batches = batch_iter(train_data, batch_size, embed_keys, float_keys, shuffle = False)
     valid_batches = batch_iter(valid_data, len(valid_data), embed_keys, float_keys, shuffle = False)
     test_batches = batch_iter(test_data, len(test_data), embed_keys, float_keys, shuffle = False)
     
     model = MultiNet(len(float_keys), embed_dims, embed_sizes, 20, embed_keys)
     model = set_cuda(model)
+    model.init_parm()
     opt = optim.Adam(model.parameters(), lr = learning_rate, weight_decay = weight_decay)
     
     start = time.time()

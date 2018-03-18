@@ -58,3 +58,30 @@ print(np.mean(rets), np.median(rets), np.std(rets))
 # 0.195486604439 0.197774390532 0.106759470241
 # Performance does not seem to be sensitive to L2 regularization 
 
+from sklearn.svm import SVR
+clf = SVR()
+clf.fit(X_train, ret_train)
+ret_pred = clf.predict(X_test)
+indices = ret_pred.argsort()[-topk:][::-1]
+rets = np.take(ret_test, indices)
+print(np.mean(rets), np.median(rets), np.std(rets))
+
+from sklearn.ensemble import RandomForestRegressor
+clf = RandomForestRegressor(max_depth = 10, random_state = 0)
+clf.fit(X_train, ret_train)
+ret_pred = clf.predict(X_test)
+indices = ret_pred.argsort()[-topk:][::-1]
+rets = np.take(ret_test, indices)
+print(np.mean(rets), np.median(rets), np.std(rets))
+# 0.398549420488 0.45823683118 0.224799514101
+
+from sklearn.tree import DecisionTreeRegressor
+clf = DecisionTreeRegressor(max_depth = 10, random_state = 0)
+clf.fit(X_train, ret_train)
+ret_pred = clf.predict(X_test)
+indices = ret_pred.argsort()[-topk:][::-1]
+rets = np.take(ret_test, indices)
+print(np.mean(rets), np.median(rets), np.std(rets))
+# 0.378766483272 0.447832477229 0.262912654323
+
+# Random forest is more robust compared to decision tree regressor
